@@ -117,8 +117,8 @@ public:
 class IndirectDiskblock {
 public:
 	Address addrs[NUM_INDIRECT_ADDRESSES];  // addresses loaded from an indirect disk block
-	void load(Address,FILE* =NULL);			//load addresses given an indirect block address
-	void write(Address,FILE* =NULL);		//write the pointers to the specific block
+	void load(Address,FILE* =NULL);			//load addresses given an indirect block address (address is indirect block address)
+	void write(Address,FILE* =NULL);		//write the pointers to the specific block(address is block address)
 };
 
 class iNode
@@ -184,7 +184,7 @@ public:
 class DiskblockManager {
 
 public:
-	Address freeptr;
+	Address freeptr;								// freeptr = super->blockStart;
 	void initialize(superBlock*,FILE* =NULL);		// initialize when the disk is created
 	Address alloc(FILE* =NULL);						// allocate a free block and return the free block address
 	void free(Address addr,FILE* =NULL);			// recycle the unused block and push it to the stack
@@ -224,11 +224,11 @@ public:
 	bool setCurrentInode(int inode_id);
 
 	void parse(char* str);
-
+	// directory 操作 
 	Directory readFileEntriesFromDirectoryFile(iNode);
 	bool writeFileEntriesToDirectoryFile(Directory, iNode);
 	int createUnderInode(iNode&, const char*, int);
-
+	// 文件和directory操作
 	short allocateResourceForNewDirectory(iNode);
 	short allocateResourceForNewFile(iNode, unsigned);
 	bool deleteFile(iNode);
