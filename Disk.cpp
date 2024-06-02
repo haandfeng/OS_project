@@ -15,13 +15,28 @@ Spinlock::~Spinlock() {
 }
 
 void Spinlock::lock() {
-    while (lock_flag.test_and_set(std::memory_order_acquire)) {
+	/*
+		1.	test_and_set：
+		•	test_and_set 是 std::atomic_flag 的一个成员函数。
+		•	它的作用是将 atomic_flag 设置为 true，并返回在调用该函数之前 atomic_flag 的值。
+		•	如果 atomic_flag 之前是 false，返回 false，并将 atomic_flag 设置为 true。
+		•	如果 atomic_flag 之前是 true，返回 true，并保持 atomic_flag 为 true。
+		2.	std::memory_order_acquire：
+		•	std::memory_order_acquire 是一个内存顺序标志，表示获取操作。
+		•	它确保此线程中后续的内存读取操作不能重排到此获取操作之前。这意味着，如果一个线程观察到另一个线程释放的标志，它将看到在释放操作之前的所有写入。
+		•	通常与 std::memory_order_release 配对使用，以确保跨线程的内存操作顺序和可见性。
+	*/
+    while (lock_flag.test_and_set(memory_order_acquire)) {
         // Active wait does not relinquish control
     }
 }
 
 void Spinlock::unlock() {
-    lock_flag.clear(std::memory_order_release);
+	/*	1.	释放操作：当一个线程对某个原子对象进行 release 操作时，它保证在此操作之前的所有内存写入（对共享变量的修改）在其他线程中都能在这个 release 操作之后被看到。
+		这意味着，如果一个线程执行了 release 操作，那么其他线程在看到这个 release 操作之后，必定能看到在此之前对共享变量的所有修改。
+		2.	使用场景：std::memory_order_release 通常与 std::memory_order_acquire 搭配使用，形成“先发布，后获取”的同步机制。这样可以确保线程之间的操作顺序，
+		避免数据竞争和内存可见性问题。*/
+    lock_flag.clear(memory_order_release);
 }
 
 // 睡眠锁
@@ -34,18 +49,18 @@ SleepLock::~SleepLock() {
 }
 
 void SleepLock::wait() {
-    std::unique_lock<std::mutex> lck(mtx);
-    while (!ready) cv.wait(lck);
+    unique_lock<mutex> lck(mtx);
+    while (!ready) cv.wait(lck); // lck需要在条件变量等待时能够被解锁和重新锁定。
 }
 
 void SleepLock::notify() {
-    std::lock_guard<std::mutex> lck(mtx);
+    lock_guard<mutex> lck(mtx);  //它在构造时锁定互斥锁，在析构时自动解锁。 std::lock_guard 通常比 std::unique_lock 更轻量级，因为它不需要提供那些额外的灵活性。这使得 std::lock_guard 在简单的锁定场景中性能更优。
     ready = true;
     cv.notify_one();
 }
 
 void SleepLock::notifyAll() {
-    std::lock_guard<std::mutex> lck(mtx);
+    lock_guard<mutex> lck(mtx);
     ready = true;
     cv.notify_all();
 }

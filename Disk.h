@@ -265,8 +265,8 @@ private:
 
 class Spinlock {
 public:
-    Spinlock();  // Constructor
-    ~Spinlock(); // Destructor
+    Spinlock();  // 
+    ~Spinlock(); // 
 
     void lock();
     void unlock();
@@ -285,7 +285,7 @@ public:
     void notifyAll();  // Notify all waiting threads
 
 private:
-    std::mutex mtx;
-    std::condition_variable cv;
+    std::mutex mtx; // mtx 用于保护对 ready 变量和 std::condition_variable 的访问。
+    std::condition_variable cv; //是一个条件变量，用于线程间的等待和通知机制。条件变量允许一个或多个线程等待某个条件，并由其他线程通知这些等待线程条件已经满足。
     bool ready;
 };
