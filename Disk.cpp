@@ -39,31 +39,35 @@ void Spinlock::unlock() {
     lock_flag.clear(memory_order_release);
 }
 
-// 睡眠锁
-SleepLock::SleepLock() : ready(false) {
-    // Constructor body, initialize members if needed
-}
 
-SleepLock::~SleepLock() {
-    // Any required cleanup can be added here
-}
+// 睡眠锁
+SleepLock::SleepLock() : ready(true) {}
+
+SleepLock::~SleepLock() {}
 
 void SleepLock::wait() {
-    unique_lock<mutex> lck(mtx);
-    while (!ready) cv.wait(lck); // lck需要在条件变量等待时能够被解锁和重新锁定。
+    std::unique_lock<std::mutex> lck(mtx);
+    while (!ready) {
+        cv.wait(lck);
+    }
+    ready = false;  // Reset ready after waiting
 }
 
 void SleepLock::notify() {
-    lock_guard<mutex> lck(mtx);  //它在构造时锁定互斥锁，在析构时自动解锁。 std::lock_guard 通常比 std::unique_lock 更轻量级，因为它不需要提供那些额外的灵活性。这使得 std::lock_guard 在简单的锁定场景中性能更优。
+    std::lock_guard<std::mutex> lck(mtx);
     ready = true;
     cv.notify_one();
 }
 
 void SleepLock::notifyAll() {
-    lock_guard<mutex> lck(mtx);
+    std::lock_guard<std::mutex> lck(mtx);
     ready = true;
     cv.notify_all();
 }
+
+
+// 声明全局对象为外部变量
+extern SleepLock globalSleepLock;
 
 int fileSeek(FILE* file, long offSet, int fromWhere, bool error_close_require)
 {
@@ -96,7 +100,10 @@ FILE* fileOpen(const char* name, const char* mode, bool error_close_require)
 
 size_t fileRead(void* buffer, size_t elementSize, size_t elementCount, FILE* file, bool error_close_require)
 {
+	// globalSleepLock.wait();
 	size_t r = fread(buffer, elementSize, elementCount, file); // 每次读多少字节，读多少次
+	// cout<<"In fread"<<endl;
+	// globalSleepLock.notify();
 	if (r != elementCount) { 
 		perror("fread()"); 
 		if (feof(file)) printf("EOF error!\n");
@@ -107,7 +114,7 @@ size_t fileRead(void* buffer, size_t elementSize, size_t elementCount, FILE* fil
 }
 
 size_t fileWrite(const void* buffer, size_t elementSize, size_t elementCount, FILE* file, bool error_close_require)
-{
+{	
 	size_t r = fwrite(buffer, elementSize, elementCount, file);//  写入的内容，写多少字节，多少次
 	if (r != elementCount) {
 		perror("fread()");
@@ -642,17 +649,20 @@ bool Disk::loadDisk()
 	if (file)
 	{
 		cout << "Disk file found!" << endl;
-		if (fileSeek(file, 0, SEEK_SET)) return false;
 		char* magic_number_test = new char[sizeof(magic_number)];
+		globalSleepLock.wait();
+		if (fileSeek(file, 0, SEEK_SET)) return false;
 		if (fileRead(magic_number_test, sizeof(char), 
 			strlen(magic_number), file) != strlen(magic_number)) 
 			return false;
+		globalSleepLock.notify();
 		magic_number_test[sizeof(magic_number) - 1] = '\0';
 		if (strcmp(magic_number_test, magic_number))
 		{
 			cout << "Magic number error! Invalid file!!" << endl;
 			return false;
 		}
+		globalSleepLock.wait();
 		if (fileSeek(file, sizeof(magic_number) - 1, SEEK_SET)) 
 			return false;
 		if (fileRead(&super, sizeof(superBlock), 1, file) != 1)
@@ -660,6 +670,7 @@ bool Disk::loadDisk()
 			fclose(file);
 			return false;
 		}
+		globalSleepLock.notify();
 		diskFile = file;
 		dbm.freeptr = super.freeptr;
 		delete[] magic_number_test;
@@ -670,14 +681,17 @@ bool Disk::loadDisk()
 		cout << "Disk file not found! Initial a new file!" << endl;
 		file = fileOpen("disk.dat", "w");
 		// 设置最后一位为EOF
+		globalSleepLock.wait();
 		if (fileSeek(file, INITIAL_DISK_SIZE - 1, SEEK_CUR)) return false;
 		if (filePutCharacter(0, file)) return false;
+		globalSleepLock.notify();
 		cout << "Create file successful!" << endl;
 		fclose(file);
 		file = fileOpen("disk.dat", "rb+");
+		globalSleepLock.wait();
 		if (fileSeek(file, 0, SEEK_SET)) return false;
 		if (fileWrite(magic_number,sizeof(magic_number),1,file) != 1) return false;
-
+		globalSleepLock.notify();
 		dbm.initialize(&super, file);
 		super.freeptr = dbm.freeptr;
 		super.freeDataBlockNumber = dbm.getFreeBlock(file);
@@ -1518,8 +1532,10 @@ iNode superBlock::loadInode(short id,FILE* file)
 	bool specify_FILE_object = file != NULL;
 	if (!specify_FILE_object) file = fileOpen(DISK_PATH, "rb+");
 	iNode inode;
+	globalSleepLock.wait();
 	if (fileSeek(file, inodeStart + id * INODE_SIZE, SEEK_SET)) return iNode(0, -1, -1);
 	if (fileRead(&inode, sizeof (iNode), 1, file) != 1) return iNode(0, -1, -1);
+	globalSleepLock.notify();
 	if (!specify_FILE_object) fclose(file);
 	return inode;
 }
@@ -1528,7 +1544,9 @@ bool superBlock::writeInode(iNode inode, FILE* file)
 {
 	bool specify_FILE_object = file != NULL;
 	if (!specify_FILE_object) file = fileOpen(DISK_PATH, "rb+");
+	globalSleepLock.wait();
 	if (fileSeek(file, inodeStart + inode.inode_id * INODE_SIZE, SEEK_SET)) return false;
+	globalSleepLock.notify();
 	if (fileWrite(&inode, sizeof (iNode), 1, file) != 1)return false;
 	if (!specify_FILE_object) fclose(file);
 	return true;
@@ -1599,8 +1617,10 @@ int superBlock::allocateNewInode(unsigned fileSize, int parent, Address direct[]
 	}
 	
 	if (!specify_FILE_object) file = fileOpen(DISK_PATH, "rb+");
+	globalSleepLock.wait();
 	if (fileSeek(file, inodeStart + inode.inode_id * INODE_SIZE, SEEK_SET)) return -2;
 	if (fileWrite(&inode, sizeof (iNode), 1, file) != 1) return -2;
+	globalSleepLock.notify();
 	if (!specify_FILE_object) { fclose(file); file = NULL; }
 	freeInodeNumber--;
 	if (!updateSuperBlock(file)) { 
@@ -1623,8 +1643,10 @@ bool superBlock::updateSuperBlock(FILE* file)
 {
 	bool specify_FILE_object = file != NULL;
 	if (!specify_FILE_object) file = fileOpen(DISK_PATH, "rb+");
+	globalSleepLock.wait();
 	if (fileSeek(file, superBlockStart, SEEK_SET)) return false;
 	if (fileWrite(this, sizeof (superBlock), 1, file) != 1) return false;
+	globalSleepLock.notify();
 	if (!specify_FILE_object) { fclose(file); }
 	return true;
 }
@@ -1650,8 +1672,10 @@ void Diskblock::load(int addrInt, FILE* file, int numByte)
 	refreshContent();
 	bool specify_FILE_object = file != NULL;
 	if(!specify_FILE_object) file = fileOpen(DISK_PATH, "rb+");
+	globalSleepLock.wait();
 	fileSeek(file, addrInt, SEEK_SET);
 	fileRead(content, numByte, 1, file);
+	globalSleepLock.notify();
 	if (!specify_FILE_object) fclose(file);
 }
 
@@ -1665,8 +1689,10 @@ void Diskblock::write(int addrInt, FILE* file, int numByte)
 {
 	bool specify_FILE_object = file != NULL;
 	if (!specify_FILE_object) file = fileOpen(DISK_PATH, "rb+");
+	globalSleepLock.wait();
 	fileSeek(file, addrInt, SEEK_SET);
 	fileWrite(content, numByte, 1, file);
+	globalSleepLock.notify();
 	if (!specify_FILE_object) fclose(file);
 	refreshContent();
 }
@@ -1684,8 +1710,10 @@ void IndirectDiskblock::load(Address a,FILE* file)
 	int addrInt = a.to_int();
 	if(!specify_FILE_object) file = fileOpen(DISK_PATH, "rb+");
 	memset(addrs, 0, sizeof(addrs));
+	globalSleepLock.wait();
 	fileSeek(file, addrInt, SEEK_SET);
 	fileRead(addrs, 3, NUM_INDIRECT_ADDRESSES, file);
+	globalSleepLock.notify();
 	if (!specify_FILE_object) fclose(file);
 }
 
@@ -1694,8 +1722,10 @@ void IndirectDiskblock::write(Address blockAddr,FILE* file)  // still untested
 	bool specify_FILE_object = file != NULL;
 	int addrInt = blockAddr.to_int();
 	if (!specify_FILE_object) file = fileOpen(DISK_PATH, "rb+");
+	globalSleepLock.wait();
 	fileSeek(file, addrInt, SEEK_SET);
 	fileWrite(addrs, sizeof addrs, 1, file);
+	globalSleepLock.notify();
 	if (!specify_FILE_object) fclose(file);
 }
 

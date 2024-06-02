@@ -16,14 +16,14 @@
 #define INITIAL_DISK_SIZE  16 * 1024 * 1024 // 磁盘空间 or memery的空间？ size: 16MB
 
 #define INITIAL_BLOCK_SIZE  1 * 1024  // One Block 1KB
-#define INITIAL_BLOCK_NUM  1024 // ?
-#define INITIAL_SUPERBLOCK_SIZE  1 * 1024 // ?
+#define INITIAL_BLOCK_NUM  1024 // 没用过，直接init 其他block的number了
+#define INITIAL_SUPERBLOCK_SIZE  1 * 1024 // suoper block大小
 // #define INITIAL_BITMAP_SIZE  2 * 1024
-#define INITIAL_INODE_NUMBER  4096 // ?
-#define INITIAL_DATA_BLOCK_NUMBER 2040 * 8 // ?
-#define INITLAL_FREEPTR  16541362 // ?
+#define INITIAL_INODE_NUMBER  4096 // Inode数量
+#define INITIAL_DATA_BLOCK_NUMBER 2040 * 8 // 数据块数量
+#define INITLAL_FREEPTR  16541362 // 没用过
 #define DISK_PATH "disk.dat"
-#define NUM_INDIRECT_ADDRESSES 341 // ?
+#define NUM_INDIRECT_ADDRESSES 341 // 1024/3 = 341 一共有341个indirect block
 
 #define INITIAL_INODE_SIZE 128 // inode size 
 // measured in "BITS"
