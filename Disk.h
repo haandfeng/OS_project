@@ -7,6 +7,7 @@
 #include <string>
 #include <stack>
 #include <regex>
+#include <atomic>
 #pragma warning(disable:4996)
 
 
@@ -259,4 +260,32 @@ private:
 	iNode currentInode;
 	Diskblock db;
 	std::regex fileNamePattern;
+};
+
+
+class Spinlock {
+public:
+    Spinlock();  // Constructor
+    ~Spinlock(); // Destructor
+
+    void lock();
+    void unlock();
+
+private:
+    std::atomic_flag lock_flag;
+};
+
+class SleepLock {
+public:
+    SleepLock();  // Constructor
+    ~SleepLock(); // Destructor
+
+    void wait();  // Wait for the condition
+    void notify();  // Notify one waiting thread
+    void notifyAll();  // Notify all waiting threads
+
+private:
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool ready;
 };

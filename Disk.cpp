@@ -5,6 +5,50 @@
 using namespace std;
 #pragma warning(disable:4996)
 
+// 自旋锁
+Spinlock::Spinlock() {
+    lock_flag.clear(); // Initialize the flag
+}
+
+Spinlock::~Spinlock() {
+    // Any required cleanup can be added here
+}
+
+void Spinlock::lock() {
+    while (lock_flag.test_and_set(std::memory_order_acquire)) {
+        // Active wait does not relinquish control
+    }
+}
+
+void Spinlock::unlock() {
+    lock_flag.clear(std::memory_order_release);
+}
+
+// 睡眠锁
+SleepLock::SleepLock() : ready(false) {
+    // Constructor body, initialize members if needed
+}
+
+SleepLock::~SleepLock() {
+    // Any required cleanup can be added here
+}
+
+void SleepLock::wait() {
+    std::unique_lock<std::mutex> lck(mtx);
+    while (!ready) cv.wait(lck);
+}
+
+void SleepLock::notify() {
+    std::lock_guard<std::mutex> lck(mtx);
+    ready = true;
+    cv.notify_one();
+}
+
+void SleepLock::notifyAll() {
+    std::lock_guard<std::mutex> lck(mtx);
+    ready = true;
+    cv.notify_all();
+}
 
 int fileSeek(FILE* file, long offSet, int fromWhere, bool error_close_require)
 {
