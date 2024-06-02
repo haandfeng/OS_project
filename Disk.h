@@ -7,7 +7,9 @@
 #include <string>
 #include <stack>
 #include <regex>
-#include <atomic>
+#include <memory>
+#include <mutex>
+#include <condition_variable>
 #pragma warning(disable:4996)
 
 
@@ -46,6 +48,41 @@ int filePutCharacter(int, FILE*);
 const char magic_number[] = "xtyshrfs";
 
 // Address size 24bit => 3 byte
+
+
+class SleepLock {
+public:
+    SleepLock();  // Constructor
+    ~SleepLock(); // Destructor
+
+    void wait();  // Wait for the condition
+    void notify();  // Notify one waiting thread
+    void notifyAll();  // Notify all waiting threads
+
+private:
+    std::mutex mtx; // mtx 用于保护对 ready 变量和 std::condition_variable 的访问。
+    std::condition_variable cv; //是一个条件变量，用于线程间的等待和通知机制。条件变量允许一个或多个线程等待某个条件，并由其他线程通知这些等待线程条件已经满足。
+    bool ready;
+};
+
+
+class RWLock {
+public:
+    RWLock();
+    ~RWLock();
+
+    void lockRead();
+    void unlockRead();
+    void lockWrite();
+    void unlockWrite();
+
+private:
+    std::mutex mtx;
+    std::condition_variable cv;
+    int readers;
+    bool writer;
+};
+
 struct Address
 {
 	// 3 byte
@@ -129,6 +166,10 @@ public:
 	time_t inode_create_time;
 	time_t inode_access_time;
 	time_t inode_modify_time;
+	// 锁
+	// RWLock* lock;  // 使用原始指针管理读写锁
+    // void initLock(); // 初始化锁
+    // void deleteLock(); // 删除锁
 	bool isDir;
 
 	int parent;
@@ -137,8 +178,15 @@ public:
 	Address direct[DIRECT_ADDRESS_NUMBER];
 	Address indirect;
 
-	iNode(unsigned, int, int, bool=true);
-	iNode() {}
+	iNode(unsigned fileSize, int parent, int inode_id, bool isDir = true);
+    iNode();
+    ~iNode();
+    // 允许复制和移动
+    iNode(const iNode& other);
+    iNode& operator=(const iNode& other);
+    iNode(iNode&& other) noexcept;
+    iNode& operator=(iNode&& other) noexcept;
+
 	void updateCreateTime();
 	void updateModifiedTime();
 	void updateAccessTime();
@@ -263,29 +311,3 @@ private:
 };
 
 
-class Spinlock {
-public:
-    Spinlock();  // 
-    ~Spinlock(); // 
-
-    void lock();
-    void unlock();
-
-private:
-    std::atomic_flag lock_flag;
-};
-
-class SleepLock {
-public:
-    SleepLock();  // Constructor
-    ~SleepLock(); // Destructor
-
-    void wait();  // Wait for the condition
-    void notify();  // Notify one waiting thread
-    void notifyAll();  // Notify all waiting threads
-
-private:
-    std::mutex mtx; // mtx 用于保护对 ready 变量和 std::condition_variable 的访问。
-    std::condition_variable cv; //是一个条件变量，用于线程间的等待和通知机制。条件变量允许一个或多个线程等待某个条件，并由其他线程通知这些等待线程条件已经满足。
-    bool ready;
-};

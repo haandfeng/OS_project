@@ -1,42 +1,44 @@
 #include "Disk.h"
 #include <iostream>
 #include <cstdio>
+#include <iomanip>
+#include <sstream>
 
 using namespace std;
 #pragma warning(disable:4996)
 
-// 自旋锁
-Spinlock::Spinlock() {
-    lock_flag.clear(); // Initialize the flag
+// 读写锁
+RWLock::RWLock() : readers(0), writer(false) {}
+
+RWLock::~RWLock() {}
+
+void RWLock::lockRead() {
+    std::unique_lock<std::mutex> lock(mtx);
+	while (writer) {
+        cv.wait(lock);
+    }
+    ++readers;
 }
 
-Spinlock::~Spinlock() {
-    // Any required cleanup can be added here
-}
-
-void Spinlock::lock() {
-	/*
-		1.	test_and_set：
-		•	test_and_set 是 std::atomic_flag 的一个成员函数。
-		•	它的作用是将 atomic_flag 设置为 true，并返回在调用该函数之前 atomic_flag 的值。
-		•	如果 atomic_flag 之前是 false，返回 false，并将 atomic_flag 设置为 true。
-		•	如果 atomic_flag 之前是 true，返回 true，并保持 atomic_flag 为 true。
-		2.	std::memory_order_acquire：
-		•	std::memory_order_acquire 是一个内存顺序标志，表示获取操作。
-		•	它确保此线程中后续的内存读取操作不能重排到此获取操作之前。这意味着，如果一个线程观察到另一个线程释放的标志，它将看到在释放操作之前的所有写入。
-		•	通常与 std::memory_order_release 配对使用，以确保跨线程的内存操作顺序和可见性。
-	*/
-    while (lock_flag.test_and_set(memory_order_acquire)) {
-        // Active wait does not relinquish control
+void RWLock::unlockRead() {
+    std::lock_guard<std::mutex> lock(mtx);
+    if (--readers == 0) {
+        cv.notify_all();
     }
 }
 
-void Spinlock::unlock() {
-	/*	1.	释放操作：当一个线程对某个原子对象进行 release 操作时，它保证在此操作之前的所有内存写入（对共享变量的修改）在其他线程中都能在这个 release 操作之后被看到。
-		这意味着，如果一个线程执行了 release 操作，那么其他线程在看到这个 release 操作之后，必定能看到在此之前对共享变量的所有修改。
-		2.	使用场景：std::memory_order_release 通常与 std::memory_order_acquire 搭配使用，形成“先发布，后获取”的同步机制。这样可以确保线程之间的操作顺序，
-		避免数据竞争和内存可见性问题。*/
-    lock_flag.clear(memory_order_release);
+void RWLock::lockWrite() {
+    std::unique_lock<std::mutex> lock(mtx);
+	while (writer||readers > 0) {
+        cv.wait(lock);
+    }
+    writer = true;
+}
+
+void RWLock::unlockWrite() {
+    std::lock_guard<std::mutex> lock(mtx);
+    writer = false;
+    cv.notify_all();
 }
 
 
@@ -68,6 +70,11 @@ void SleepLock::notifyAll() {
 
 // 声明全局对象为外部变量
 extern SleepLock globalSleepLock;
+
+
+
+
+
 
 int fileSeek(FILE* file, long offSet, int fromWhere, bool error_close_require)
 {
@@ -192,6 +199,7 @@ void Disk::parse(char* str)
 		for (size_t i = 0; i < pathList.size(); i++)
 		{
 			iNode inode_ptr = super.loadInode(inode_id_ptr, diskFile);
+			// inode_ptr.lock->lockReader();
 			if (!inode_ptr.isDir) {
 				printf("%s is a file! You can not create directory under here!\n", getFileName(inode_ptr).c_str());
 				return;
@@ -900,6 +908,7 @@ int Disk::createUnderInode(iNode& parent, const char* name, int newInode)
       3、一开始占用直接块，但加了之后需要申请间接块
       4、占用间接块，不需要申请新块
       5、占用间接块，需要申请新块*/
+	// parent.lock->
 	if (parent.fileSize == MAXIMUM_FILE_SIZE) {
 		printf("This directory has reached its maximum size!\n");
 		return -1;
@@ -1729,15 +1738,82 @@ void IndirectDiskblock::write(Address blockAddr,FILE* file)  // still untested
 	if (!specify_FILE_object) fclose(file);
 }
 
+
+
+// // 初始化锁
+// void iNode::initLock() {
+//     lock = new RWLock();
+// }
+
+// // 删除锁
+// void iNode::deleteLock() {
+//     delete lock;
+// }
+
 iNode::iNode(unsigned fileSize, int parent, int inode_id, bool isDir)
-{
-	updateCreateTime();
-	updateModifiedTime();
-	updateAccessTime();
-	this->fileSize = fileSize;
-	this->parent = parent;
-	this->inode_id = inode_id;
-	this->isDir = isDir;
+    : fileSize(fileSize), parent(parent), inode_id(inode_id), isDir(isDir) {
+    inode_create_time = std::time(nullptr);
+    inode_access_time = inode_create_time;
+    inode_modify_time = inode_create_time;
+    //initLock();
+}
+
+iNode::iNode() : iNode(0, -1, -1, true) {}
+
+iNode::~iNode() {
+    //deleteLock();
+}
+
+iNode::iNode(const iNode& other)
+    : fileSize(other.fileSize), inode_create_time(other.inode_create_time),
+      inode_access_time(other.inode_access_time), inode_modify_time(other.inode_modify_time),
+      isDir(other.isDir), parent(other.parent), inode_id(other.inode_id) {
+    std::copy(std::begin(other.direct), std::end(other.direct), std::begin(direct));
+    indirect = other.indirect;
+    //initLock();  // 为每个副本创建一个新的锁
+}
+
+iNode& iNode::operator=(const iNode& other) {
+    if (this != &other) {
+        fileSize = other.fileSize;
+        inode_create_time = other.inode_create_time;
+        inode_access_time = other.inode_access_time;
+        inode_modify_time = other.inode_modify_time;
+        isDir = other.isDir;
+        parent = other.parent;
+        inode_id = other.inode_id;
+        std::copy(std::begin(other.direct), std::end(other.direct), std::begin(direct));
+        indirect = other.indirect;
+        //deleteLock();  // 删除旧的锁
+        //initLock();  // 为每个副本创建一个新的锁
+    }
+    return *this;
+}
+iNode::iNode(iNode&& other) noexcept
+    : fileSize(other.fileSize), inode_create_time(other.inode_create_time),
+      inode_access_time(other.inode_access_time), inode_modify_time(other.inode_modify_time),
+      isDir(other.isDir), parent(other.parent), inode_id(other.inode_id){
+    std::copy(std::begin(other.direct), std::end(other.direct), std::begin(direct));
+    indirect = other.indirect;
+    //other.lock = nullptr;  // 防止原对象析构时删除锁
+}
+
+iNode& iNode::operator=(iNode&& other) noexcept {
+    if (this != &other) {
+        fileSize = other.fileSize;
+        inode_create_time = other.inode_create_time;
+        inode_access_time = other.inode_access_time;
+        inode_modify_time = other.inode_modify_time;
+        isDir = other.isDir;
+        parent = other.parent;
+        inode_id = other.inode_id;
+        std::copy(std::begin(other.direct), std::end(other.direct), std::begin(direct));
+        indirect = other.indirect;
+        //deleteLock();  // 删除旧的锁
+        //lock = other.lock;  // 移动锁指针
+        //other.lock = nullptr;  // 防止原对象析构时删除锁
+    }
+    return *this;
 }
 
 void iNode::updateCreateTime()
@@ -1775,6 +1851,9 @@ string iNode::getAccessTime()
 	time_str = time_str.substr(0, time_str.size() - 1);
 	return time_str;
 }
+
+
+
 
 void DiskblockManager::initialize(superBlock* super, FILE* file)
 {
