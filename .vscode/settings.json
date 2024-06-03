@@ -52,6 +52,8 @@
         "algorithm": "cpp",
         "memory": "cpp",
         "condition_variable": "cpp",
-        "iomanip": "cpp"
+        "iomanip": "cpp",
+        "fstream": "cpp",
+        "queue": "cpp"
     }
 }

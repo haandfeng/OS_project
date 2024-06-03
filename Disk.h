@@ -10,6 +10,9 @@
 #include <memory>
 #include <mutex>
 #include <condition_variable>
+#include <cstring>
+#include <queue>
+#include <algorithm>
 #pragma warning(disable:4996)
 
 
@@ -38,7 +41,7 @@
 #define DIRECT_ADDRESS_NUMBER 10 // I-node Direct address 
 // measured in "BYTES" 
 #define MAXIMUM_FILE_SIZE DIRECT_ADDRESS_NUMBER * INITIAL_BLOCK_SIZE + 1 * NUM_INDIRECT_ADDRESSES * INITIAL_BLOCK_SIZE
-
+#define M 2 // B+树的order m*2=key数，m*2+1=值；//插入满格灌，删除一个节点不能少于(M+1)/2,若zhi为5，不能少于2
 int fileSeek(FILE*, long, int, bool=false);
 FILE* fileOpen(const char*, const char*, bool=false);
 size_t fileRead(void*, size_t, size_t, FILE*, bool=false);
@@ -82,6 +85,8 @@ private:
     int readers;
     bool writer;
 };
+
+
 
 struct Address
 {
@@ -244,17 +249,109 @@ public:
 	int getDedicateBlock(superBlock*,FILE*);		// get dedicated block number
 };
 
+
+
 struct fileEntry {
-	char fileName[MAXIMUM_FILENAME_LENGTH];
-	short inode_id;
-	fileEntry() {};
-	fileEntry(const char* , short);
+    char fileName[MAXIMUM_FILENAME_LENGTH];
+    short inode_id;
+
+    fileEntry();
+    fileEntry(const char* name, short id);
+
+    bool operator<(const fileEntry& other) const;
+    bool operator==(const fileEntry& other) const;
+    bool operator>(const fileEntry& other) const;
+    bool operator>=(const fileEntry& other) const;
+    void operator=(const char* name);
+    void operator=(const fileEntry& other);
 };
 
-struct Directory {
-	std::vector<fileEntry> files;
-	short findInFileEntries(const char*);
+
+
+std::ostream& operator<<(std::ostream& os, const fileEntry& fe);
+
+class Inter_Node;
+
+class Node {
+public:
+    Node();
+    virtual ~Node();
+    Node* GetBrother(int& flag);
+    void Print();
+
+    Inter_Node* Parent;
+    fileEntry key[M * 2];
+    int count;
+    int isLeaf;
 };
+
+class Inter_Node : public Node {
+public:
+    Inter_Node();
+    virtual ~Inter_Node();
+
+    bool Insert(fileEntry value, Node* pNode);
+    bool Delete(fileEntry value);
+    fileEntry Split(Inter_Node* pNode, fileEntry key);
+    bool Merge(Inter_Node* pNode);
+    bool Slib(Inter_Node* pNode);
+
+    Node* Child[M * 2 + 1];
+};
+
+class Leaf_Node : public Node {
+public:
+    Leaf_Node();
+    virtual ~Leaf_Node();
+
+    bool Insert(fileEntry value);
+    bool Delete(fileEntry value);
+    fileEntry Split(Leaf_Node* pNode);
+    bool Merge(Leaf_Node* pNode);
+
+    Leaf_Node* Pre_Node;
+    Leaf_Node* Next_Node;
+};
+
+class Bplus {
+public:
+    Bplus();
+    virtual ~Bplus();
+
+    bool Search(fileEntry data, std::string& sPath);
+    bool Search(char* name, std::string& sPath);
+    bool Insert(fileEntry data);
+    bool Delete(fileEntry data);
+    void Print();
+
+protected:
+    Leaf_Node* Find(fileEntry data);
+    bool Add_Node(Inter_Node* pNode, fileEntry key, Node* New_Node);
+    bool Remove_Node(Inter_Node* pNode, fileEntry key);
+
+    Node* Root;
+};
+
+
+
+
+
+
+
+
+struct Directory {
+    std::vector<fileEntry> files;
+    
+
+    short findInFileEntries(const char* fileName);
+};
+
+// struct Directory {
+// 	Directory();
+// 	std::vector<fileEntry> files;
+//     short findInFileEntries(const char* fileName);
+// 	BPlusTree tree;
+// };
 
 
 class Disk
@@ -277,6 +374,9 @@ public:
 	Directory readFileEntriesFromDirectoryFile(iNode);
 	bool writeFileEntriesToDirectoryFile(Directory, iNode);
 	int createUnderInode(iNode&, const char*, int);
+
+
+
 	// 文件和directory操作
 	short allocateResourceForNewDirectory(iNode);
 	short allocateResourceForNewFile(iNode, unsigned);
