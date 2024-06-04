@@ -717,6 +717,8 @@ void Disk::initializeRootDirectory()
     Directory root_dir;
     root_dir.files.push_back(fileEntry(".", 0));
     root_dir.files.push_back(fileEntry("..", 0));
+    root_dir.tree->Insert(fileEntry(".", 0));
+    root_dir.tree->Insert(fileEntry("..", 0));
     int directoryFileSize = root_dir.files.size() * sizeof(fileEntry);
     Address rootDirectoryFile = allocateNewBlock(diskFile);
     if (rootDirectoryFile == Address(0)) {
@@ -796,6 +798,7 @@ Directory Disk::readFileEntriesFromDirectoryFile(iNode inode)
                 {
                     memcpy(&fe, db.content + j * sizeof(fileEntry), sizeof(fileEntry));
                     d.files.push_back(fe);
+                    d.tree->Insert(fe);
                 }
             }
             else {
@@ -803,6 +806,7 @@ Directory Disk::readFileEntriesFromDirectoryFile(iNode inode)
                 {
                     memcpy(&fe, db.content + j * sizeof(fileEntry), sizeof(fileEntry));
                     d.files.push_back(fe);
+                    d.tree->Insert(fe);
                 }
             }
         }
@@ -815,6 +819,7 @@ Directory Disk::readFileEntriesFromDirectoryFile(iNode inode)
             {
                 memcpy(&fe, db.content + j * sizeof(fileEntry), sizeof(fileEntry));
                 d.files.push_back(fe);
+                d.tree->Insert(fe);
             }
         }
         IndirectDiskblock idb;
@@ -828,6 +833,7 @@ Directory Disk::readFileEntriesFromDirectoryFile(iNode inode)
             {
                 memcpy(&fe, db.content + j * sizeof(fileEntry), sizeof(fileEntry));
                 d.files.push_back(fe);
+                d.tree->Insert(fe);
             }
         }
         int lastRemainingEntriesNumber =
@@ -837,8 +843,10 @@ Directory Disk::readFileEntriesFromDirectoryFile(iNode inode)
         {
             memcpy(&fe, db.content + i * sizeof(fileEntry), sizeof(fileEntry));
             d.files.push_back(fe);
+            d.tree->Insert(fe);
         }
     }
+    // d.tree->Print();
     return d;
 }
 
@@ -914,17 +922,18 @@ int Disk::createUnderInode(iNode& parent, const char* name, int newInode)
         printf("This directory has reached its maximum size!\n");
         return -1;
     }
-    bool checkDuplicate = false;
+    // bool checkDuplicate = false;
     Directory parent_dir = readFileEntriesFromDirectoryFile(parent);
-    for (size_t i = 0; i < parent_dir.files.size(); i++) // 检查重复
-    {
-        if (!strcmp(parent_dir.files[i].fileName, name))
-        {
-            checkDuplicate = true;
-            break;
-        }
-    }
-    if (checkDuplicate) {
+    // for (size_t i = 0; i < parent_dir.files.size(); i++) // 检查重复
+    // {
+    //     if (!strcmp(parent_dir.files[i].fileName, name))
+    //     {
+    //         checkDuplicate = true;
+    //         break;
+    //     }
+    // }
+
+    if (parent_dir.tree->Search(name)>0) {
         printf("File/Directory with same name is exist: %s\nPlease change another name!\n",name);
         return -1;
     }
@@ -939,7 +948,10 @@ int Disk::createUnderInode(iNode& parent, const char* name, int newInode)
             if (newInode == -1)return -1;
             //应用父文件夹的更改
             Directory parent_dir = readFileEntriesFromDirectoryFile(parent);
+
             parent_dir.files.push_back(fileEntry(name, newInode));
+            parent_dir.tree->Insert(fileEntry(name, newInode));
+
             parent.fileSize += sizeof(fileEntry);
             parent.updateModifiedTime();
             super.writeInode(parent, diskFile);
@@ -955,6 +967,7 @@ int Disk::createUnderInode(iNode& parent, const char* name, int newInode)
             //应用父文件夹的更改
             Directory parent_dir = readFileEntriesFromDirectoryFile(parent);
             parent_dir.files.push_back(fileEntry(name, newInode));
+            parent_dir.tree->Insert(fileEntry(name, newInode));
             parent.fileSize += sizeof(fileEntry);
             parent.updateModifiedTime();
             Address newBlockForParentDirectory = allocateNewBlock(diskFile);
@@ -972,6 +985,7 @@ int Disk::createUnderInode(iNode& parent, const char* name, int newInode)
         //应用父文件夹的更改
         Directory parent_dir = readFileEntriesFromDirectoryFile(parent);
         parent_dir.files.push_back(fileEntry(name, newInode));
+        parent_dir.tree->Insert(fileEntry(name, newInode));
         parent.fileSize += sizeof(fileEntry);
         parent.updateModifiedTime();
         Address newIndirectAddressBlockForParentDirectory = allocateNewBlock(diskFile);
@@ -993,6 +1007,7 @@ int Disk::createUnderInode(iNode& parent, const char* name, int newInode)
             //应用父文件夹的更改
             Directory parent_dir = readFileEntriesFromDirectoryFile(parent);
             parent_dir.files.push_back(fileEntry(name, newInode));
+            parent_dir.tree->Insert(fileEntry(name, newInode));
             parent.fileSize += sizeof(fileEntry);
             parent.updateModifiedTime();
             super.writeInode(parent, diskFile);
@@ -1006,6 +1021,7 @@ int Disk::createUnderInode(iNode& parent, const char* name, int newInode)
             //应用父文件夹的更改
             Directory parent_dir = readFileEntriesFromDirectoryFile(parent);
             parent_dir.files.push_back(fileEntry(name, newInode));
+            parent_dir.tree->Insert(fileEntry(name, newInode));
             parent.fileSize += sizeof(fileEntry);
             parent.updateModifiedTime();
             Address newIndirectBlockForParentDirectory = allocateNewBlock(diskFile);
@@ -1029,6 +1045,10 @@ short Disk::allocateResourceForNewDirectory(iNode parent)
     Directory dir;
     dir.files.push_back(fileEntry(".", newInodeForNewDirectory));
     dir.files.push_back(fileEntry("..", parent.inode_id));
+
+    dir.tree->Insert(fileEntry(".", newInodeForNewDirectory));
+    dir.tree->Insert(fileEntry("..", parent.inode_id));
+
     if (!writeFileEntriesToDirectoryFile(dir, super.loadInode(newInodeForNewDirectory)))
     {
         printf("Failed to write file entries to disk for new directory!\n");
@@ -2037,7 +2057,7 @@ void Node::Print()
 {
     for (int i = 0; i < count; i++)
     {
-        cout << "(" << key[i]<< ")  ";
+        cout << "(" << key[i]<<"  iNode id : "<<key[i].inode_id<< ")  ";
         if (i >= count - 1)
             cout << " | ";
     }
@@ -2317,13 +2337,13 @@ bool Bplus::Add_Node(Inter_Node* p, fileEntry k, Node* New_Node)
 }
 
 //B+树查找data
-bool Bplus::Search(fileEntry data, string& sPath)
+short Bplus::Search(fileEntry data)
 {
     int i = 0;
-    sPath = "查找路径为: ";
+    // sPath = "查找路径为: ";
     Node* p = Root;
     if (NULL == p)
-        return false;
+        return 0;
     Inter_Node* q;
     while (NULL != p)
     {
@@ -2333,41 +2353,45 @@ bool Bplus::Search(fileEntry data, string& sPath)
         {
         }
         int k = i > 0 ? i - 1 : i;
-        sPath += p->key[k].fileName;
-        sPath += "-->";
+        // sPath += p->key[k].fileName;
+        // sPath += "-->";
         q = (Inter_Node*)p;
         p = q->Child[i];
     }
     if (NULL == p)
-        return false;
-    sPath += p->key[0].fileName;
-    bool found = false;
+        return 0;
+    // sPath += p->key[0].fileName;
+    // bool found = false;
     for (i = 0; i < p->count; i++)
     {
-        if (data == p->key[i])
-            found = true;
+        if (data == p->key[i]){
+            // found = true;
+            return p->key[i].inode_id;
+        }
+
         //sPath += to_string(p->key[i]);
         //sPath += "-->";
     }
-    if (found)
-    {
-        sPath += " OK";
-    }
-    else
-    {
-        sPath += " FAIL";
-    }
-    return found;
+    // if (found)
+    // {
+    //     // sPath += " OK";
+    // }
+    // else
+    // {
+    //     // sPath += " FAIL";
+    // }
+    // return found;
+    return 0;
 }
 
-bool Bplus::Search(char * name, string& sPath)
+short Bplus::Search(const char * name)
 {
     fileEntry data(name,1);
     int i = 0;
-    sPath = "查找路径为: ";
+    // sPath = "查找路径为: ";
     Node* p = Root;
     if (NULL == p)
-        return false;
+        return 0;
     Inter_Node* q;
     while (NULL != p)
     {
@@ -2377,32 +2401,35 @@ bool Bplus::Search(char * name, string& sPath)
         {
         }
         int k = i > 0 ? i - 1 : i;
-        sPath += p->key[k].fileName;
-        sPath += "-->";
-        cout<<sPath<<endl;
+        // sPath += p->key[k].fileName;
+        // sPath += "-->";
+        // cout<<sPath<<endl;
         q = (Inter_Node*)p;
         p = q->Child[i];
     }
     if (NULL == p)
-        return false;
-    sPath += p->key[0].fileName;
+        return 0;
+    // sPath += p->key[0].fileName;
     bool found = false;
     for (i = 0; i < p->count; i++)
     {
-        if (data == p->key[i])
-            found = true;
+        if (data == p->key[i]){
+            return p->key[i].inode_id;
+            // found = true;
+        }
+
         //sPath += to_string(p->key[i]);
         //sPath += "-->";
     }
-    if (found)
-    {
-        sPath += " OK";
-    }
-    else
-    {
-        sPath += " FAIL";
-    }
-    return found;
+    // if (found)
+    // {
+    //     // sPath += " OK";
+    // }
+    // else
+    // {
+    //     // sPath += " FAIL";
+    // }
+    return 0;
 }
 
 
@@ -2410,8 +2437,8 @@ bool Bplus::Search(char * name, string& sPath)
 bool Bplus::Insert(fileEntry data) //data为插入的关键字
 {
 
-    string a;
-    if (true == Search(data, a))//查找要插入的值
+    // string a;
+    if (Search(data)>0)//查找要插入的值
         return false;
 
     Leaf_Node* Old_Node = Find(data);//找到需要插入的叶子节点定义为oldnode
@@ -2700,17 +2727,17 @@ bool fileEntry::operator>(const fileEntry& other) const {
 
 // 大于等于运算符
 bool fileEntry::operator>=(const fileEntry& other) const {
-     return std::strcmp(fileName, other.fileName) > 0||std::strcmp(fileName, other.fileName) == 0;
+    return std::strcmp(fileName, other.fileName) > 0||std::strcmp(fileName, other.fileName) == 0;
 }
 // 赋值函数
 void fileEntry::operator=(const char* name) {
-        std::strncpy(fileName, name, MAXIMUM_FILENAME_LENGTH - 1);
-        fileName[MAXIMUM_FILENAME_LENGTH - 1] = '\0'; // 确保字符串以null结尾
+    std::strncpy(fileName, name, MAXIMUM_FILENAME_LENGTH - 1);
+    fileName[MAXIMUM_FILENAME_LENGTH - 1] = '\0'; // 确保字符串以null结尾
 }
 void fileEntry::operator=(const fileEntry& other)  {
-        std::strncpy(fileName, other.fileName, MAXIMUM_FILENAME_LENGTH - 1);
-        fileName[MAXIMUM_FILENAME_LENGTH - 1] = '\0'; // 确保字符串以null结尾
-        inode_id=other.inode_id;
+    std::strncpy(fileName, other.fileName, MAXIMUM_FILENAME_LENGTH - 1);
+    fileName[MAXIMUM_FILENAME_LENGTH - 1] = '\0'; // 确保字符串以null结尾
+    inode_id=other.inode_id;
 }
 
 
@@ -2725,18 +2752,60 @@ std::ostream& operator<<(std::ostream& os, const fileEntry& fe) {
 
 
 
-
-short Directory::findInFileEntries(const char* name)
- {
- 	for (size_t i = 0; i < files.size(); i++)
- 	{
- 		if (!strcmp(files[i].fileName, name))
- 			return files[i].inode_id;
- 	}
- 	return -1;
- }
-
-
-// short Directory::findInFileEntries(const char* fileName) {
-//     return tree.find(fileName);
+Directory::Directory() {
+    this->tree = new Bplus();
+}
+Directory::~Directory(){
+    delete tree;
+}
+// short Directory::findInFileEntries(const char* name){
+//     for (size_t i = 0; i < files.size(); i++)
+//     {
+//         if (!strcmp(files[i].fileName, name))
+//             return files[i].inode_id;
+//     }
+//     return -1;
 // }
+void Directory::printFileTree(){
+    tree->Print();
+}
+
+short Directory::findInFileEntries(const char* fileName) {
+    return tree->Search(fileName);
+}
+
+
+
+
+
+LRUCache::LRUCache(int capacity) : capacity(capacity) {}
+
+Directory LRUCache::get(short inode_id) {
+    auto it = cache.find(inode_id);
+    if (it == cache.end()) {
+        return Directory(); // Not found
+    }
+    touch(it);
+    return it->second.first;
+}
+
+void LRUCache::put(short inode_id, Directory tree) {
+    auto it = cache.find(inode_id);
+    if (it != cache.end()) {
+        touch(it);
+    } else {
+        if (cache.size() == capacity) {
+            cache.erase(used.front());
+            used.pop_front();
+        }
+        used.push_back(inode_id);
+    }
+    cache[inode_id] = {tree, std::prev(used.end())};
+}
+
+void LRUCache::touch(std::unordered_map<short, std::pair<Directory, ListIt>>::iterator it) {
+    short inode_id = it->first;
+    used.erase(it->second.second);
+    used.push_back(inode_id);
+    it->second.second = std::prev(used.end());
+}
